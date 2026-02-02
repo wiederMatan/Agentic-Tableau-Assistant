@@ -1,0 +1,97 @@
+# Security Scan Inventory
+# Generated: 2026-02-02
+# Project: Agentic-Tableau-Assistant
+
+inventory:
+  languages:
+    - python: "3.11+"
+    - typescript: "5.6+"
+    - javascript: "ES2022"
+
+  frameworks:
+    backend:
+      - fastapi: ">=0.115.0"
+      - langgraph: ">=0.2.60"
+      - langchain-core: ">=0.3.30"
+      - langchain-google-vertexai: ">=2.0.0"
+      - pydantic: ">=2.7.0"
+      - tableauserverclient: ">=0.33.0"
+    frontend:
+      - nextjs: "^14.2.20"
+      - react: "^18.3.1"
+      - zustand: "^5.0.0"
+      - tailwindcss: "^3.4.15"
+
+  entry_points:
+    - type: "REST API"
+      path: "/api/chat"
+      method: "POST"
+      auth: "NONE"
+      risk: "CRITICAL"
+    - type: "REST API"
+      path: "/api/chat/sync"
+      method: "POST"
+      auth: "NONE"
+      risk: "CRITICAL"
+    - type: "REST API"
+      path: "/api/health"
+      method: "GET"
+      auth: "NONE"
+      risk: "LOW"
+    - type: "REST API"
+      path: "/api/config"
+      method: "GET"
+      auth: "NONE"
+      risk: "MEDIUM"
+
+  data_stores:
+    - type: "Memory"
+      name: "LangGraph AgentState"
+      contains_pii: true
+      persistence: false
+    - type: "Browser Memory"
+      name: "Zustand Store"
+      contains_pii: true
+      persistence: false
+
+  external_services:
+    - name: "Tableau Server"
+      auth_method: "Personal Access Token (PAT)"
+      data_accessed: "Workbooks, Views, Datasources, CSV data"
+      risk: "HIGH"
+    - name: "Google Vertex AI"
+      auth_method: "Application Default Credentials (ADC)"
+      data_accessed: "User queries, analysis results"
+      risk: "MEDIUM"
+
+  sensitive_data_flows:
+    - flow: "User Query → Backend → Vertex AI"
+      data_type: "User input (potential PII)"
+      encryption: "HTTPS (if configured)"
+    - flow: "Tableau Server → Backend → Frontend"
+      data_type: "CSV data (potential PII)"
+      encryption: "HTTPS (if configured)"
+    - flow: "Credentials in Environment"
+      data_type: "PAT tokens, GCP project IDs"
+      encryption: "None at rest"
+
+  credentials:
+    - name: "TABLEAU_TOKEN_VALUE"
+      type: "Personal Access Token"
+      storage: "Environment variable"
+      protection: "SecretStr (Pydantic)"
+    - name: "TABLEAU_TOKEN_NAME"
+      type: "Token identifier"
+      storage: "Environment variable"
+      protection: "None"
+    - name: "GCP_PROJECT_ID"
+      type: "Project identifier"
+      storage: "Environment variable"
+      protection: "None"
+
+attack_surface:
+  total_endpoints: 4
+  unauthenticated_endpoints: 4
+  code_execution_paths: 1
+  external_integrations: 2
+  sensitive_env_vars: 4

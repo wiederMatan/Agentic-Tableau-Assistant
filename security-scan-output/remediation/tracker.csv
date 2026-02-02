@@ -1,0 +1,11 @@
+finding_id,title,severity,cvss,cwe,status,owner,due_date,effort,file_location,verification_test
+SEC-001,Missing API Authentication,CRITICAL,9.1,CWE-306,OPEN,,IMMEDIATE,MEDIUM,backend/src/api.py:115,curl without auth returns 401
+SEC-002,Arbitrary Code Execution,CRITICAL,9.8,CWE-94,OPEN,,IMMEDIATE,HIGH,backend/src/tools/analysis_tools.py:243,pandas file read blocked
+SEC-003,No Rate Limiting,HIGH,7.5,CWE-770,OPEN,,72H,LOW,backend/src/api.py:115,100+ requests returns 429
+SEC-004,CORS Misconfiguration,HIGH,7.1,CWE-942,OPEN,,72H,LOW,backend/src/api.py:27,cross-origin without proper origin rejected
+SEC-005,Prompt Injection,HIGH,8.1,CWE-74,OPEN,,72H,MEDIUM,backend/src/agents/*.py,injection patterns rejected
+SEC-006,Information Disclosure,MEDIUM,5.3,CWE-200,OPEN,,2W,LOW,backend/src/api.py:162,health returns minimal info
+SEC-007,Insecure Docker Config,MEDIUM,6.5,CWE-250,OPEN,,2W,MEDIUM,docker-compose.yml,trivy scan passes
+SEC-008,Sensitive Data Logging,MEDIUM,5.5,CWE-532,OPEN,,2W,LOW,backend/src/api.py:125,log grep shows no PII
+SEC-009,Missing Security Headers,LOW,3.7,CWE-16,OPEN,,BEST_EFFORT,LOW,backend/src/api.py:19,security headers present
+SEC-010,Unix-only Timeout,LOW,3.1,CWE-400,OPEN,,BEST_EFFORT,LOW,backend/src/tools/analysis_tools.py:231,timeout works on Windows
