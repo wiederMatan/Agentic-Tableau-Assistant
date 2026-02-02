@@ -4,6 +4,7 @@ import io
 import logging
 import signal
 import sys
+import time
 import traceback
 from contextlib import redirect_stderr, redirect_stdout
 from typing import Any
@@ -11,6 +12,11 @@ from typing import Any
 from langchain_core.tools import tool
 
 from ..config import get_settings
+from ..constants import (
+    DATA_PREVIEW_ROWS,
+    NUMPY_PREVIEW_ELEMENTS,
+    RESULT_SERIALIZATION_LIMIT,
+)
 from ..schemas import PythonReplInput, PythonReplOutput
 
 logger = logging.getLogger(__name__)
@@ -176,6 +182,65 @@ def _create_safe_globals() -> dict[str, Any]:
     return safe_globals
 
 
+def _setup_timeout(timeout: int) -> tuple[Any, bool]:
+    """Set up execution timeout using SIGALRM if available.
+
+    Args:
+        timeout: Timeout in seconds.
+
+    Returns:
+        Tuple of (old_handler, has_alarm) where has_alarm indicates
+        if SIGALRM is available on this platform.
+    """
+    if hasattr(signal, "SIGALRM"):
+        old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
+        signal.alarm(timeout)
+        return old_handler, True
+    return None, False
+
+
+def _clear_timeout(old_handler: Any, has_alarm: bool) -> None:
+    """Clear the execution timeout and restore the old handler.
+
+    Args:
+        old_handler: The previous signal handler to restore.
+        has_alarm: Whether SIGALRM was set up.
+    """
+    if has_alarm:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old_handler)
+
+
+def _execute_code(
+    code: str,
+    safe_globals: dict[str, Any],
+    local_vars: dict[str, Any],
+    stdout_capture: io.StringIO,
+    stderr_capture: io.StringIO,
+) -> Any:
+    """Execute code in a sandboxed environment.
+
+    Args:
+        code: Python code to execute.
+        safe_globals: Restricted globals dict.
+        local_vars: Local variables dict to populate.
+        stdout_capture: StringIO for stdout capture.
+        stderr_capture: StringIO for stderr capture.
+
+    Returns:
+        The result variable if defined, otherwise None.
+    """
+    with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
+        # Compile to catch syntax errors
+        compiled = compile(code, "<repl>", "exec")
+
+        # Execute in sandboxed environment
+        exec(compiled, safe_globals, local_vars)
+
+        # Try to get the last expression result
+        return local_vars.get("result", local_vars.get("_", None))
+
+
 @tool(args_schema=PythonReplInput)
 def python_repl(code: str, timeout_seconds: int = 30) -> dict[str, Any]:
     """Execute Python code for data analysis in a sandboxed environment.
@@ -219,8 +284,6 @@ def python_repl(code: str, timeout_seconds: int = 30) -> dict[str, Any]:
     stdout_capture = io.StringIO()
     stderr_capture = io.StringIO()
 
-    import time
-
     start_time = time.time()
 
     try:
@@ -229,27 +292,14 @@ def python_repl(code: str, timeout_seconds: int = 30) -> dict[str, Any]:
         local_vars: dict[str, Any] = {}
 
         # Set up timeout (Unix only)
-        if hasattr(signal, "SIGALRM"):
-            old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
-            signal.alarm(timeout)
+        old_handler, has_alarm = _setup_timeout(timeout)
 
         try:
-            # Redirect stdout/stderr and execute
-            with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
-                # Compile to catch syntax errors
-                compiled = compile(code, "<repl>", "exec")
-
-                # Execute in sandboxed environment
-                exec(compiled, safe_globals, local_vars)
-
-                # Try to get the last expression result
-                result = local_vars.get("result", local_vars.get("_", None))
-
+            result = _execute_code(
+                code, safe_globals, local_vars, stdout_capture, stderr_capture
+            )
         finally:
-            # Clear alarm and restore handler
-            if hasattr(signal, "SIGALRM"):
-                signal.alarm(0)
-                signal.signal(signal.SIGALRM, old_handler)
+            _clear_timeout(old_handler, has_alarm)
 
         execution_time = (time.time() - start_time) * 1000
 
@@ -281,7 +331,21 @@ def python_repl(code: str, timeout_seconds: int = 30) -> dict[str, Any]:
             execution_time_ms=(time.time() - start_time) * 1000,
         ).model_dump()
 
+    except (NameError, TypeError, ValueError, KeyError, IndexError, AttributeError) as e:
+        # Handle common runtime errors specifically
+        execution_time = (time.time() - start_time) * 1000
+        error_tb = traceback.format_exc()
+        logger.warning(f"Python REPL execution error: {e}")
+
+        return PythonReplOutput(
+            success=False,
+            stdout=stdout_capture.getvalue(),
+            stderr=f"{type(e).__name__}: {e}\n{error_tb}",
+            execution_time_ms=execution_time,
+        ).model_dump()
+
     except Exception as e:
+        # Catch any remaining errors (e.g., from pandas/numpy operations)
         execution_time = (time.time() - start_time) * 1000
         error_tb = traceback.format_exc()
         logger.warning(f"Python REPL execution error: {e}")
@@ -308,14 +372,14 @@ def _serialize_result(result: Any) -> Any:
                 "type": "DataFrame",
                 "shape": list(result.shape),
                 "columns": list(result.columns),
-                "preview": result.head(10).to_dict(orient="records"),
+                "preview": result.head(DATA_PREVIEW_ROWS).to_dict(orient="records"),
             }
         if isinstance(result, pd.Series):
             return {
                 "type": "Series",
                 "name": result.name,
                 "length": len(result),
-                "preview": result.head(10).to_dict(),
+                "preview": result.head(DATA_PREVIEW_ROWS).to_dict(),
             }
     except ImportError:
         pass
@@ -329,7 +393,7 @@ def _serialize_result(result: Any) -> Any:
                 "type": "ndarray",
                 "shape": list(result.shape),
                 "dtype": str(result.dtype),
-                "preview": result[:10].tolist() if result.size > 0 else [],
+                "preview": result[:NUMPY_PREVIEW_ELEMENTS].tolist() if result.size > 0 else [],
             }
     except ImportError:
         pass
@@ -339,11 +403,11 @@ def _serialize_result(result: Any) -> Any:
         return result
 
     if isinstance(result, (list, tuple)):
-        return [_serialize_result(item) for item in result[:100]]
+        return [_serialize_result(item) for item in result[:RESULT_SERIALIZATION_LIMIT]]
 
     if isinstance(result, dict):
         return {
-            str(k): _serialize_result(v) for k, v in list(result.items())[:100]
+            str(k): _serialize_result(v) for k, v in list(result.items())[:RESULT_SERIALIZATION_LIMIT]
         }
 
     # Fallback to string representation

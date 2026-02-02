@@ -7,6 +7,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 from langchain_google_vertexai import ChatVertexAI
 
 from ..config import get_settings
+from ..constants import TOOL_MAX_ITERATIONS
 from ..schemas import AgentState
 from ..tools import python_repl
 
@@ -126,11 +127,10 @@ Analyze this data to answer the user's question. Use the python_repl tool if cal
     ]
 
     # Run the agent loop
-    max_iterations = 5
     iteration = 0
     final_response = ""
 
-    while iteration < max_iterations:
+    while iteration < TOOL_MAX_ITERATIONS:
         iteration += 1
         logger.debug(f"Analyst: Iteration {iteration}")
 

@@ -75,12 +75,66 @@ You ask a question
 | `POST /api/chat` | Stream responses (SSE) |
 | `POST /api/chat/sync` | Get full response |
 | `GET /api/health` | Health check |
+| `GET /api/config` | Public configuration |
 
 **Try it:**
 ```bash
 curl -X POST http://localhost:8000/api/chat/sync \
   -H "Content-Type: application/json" \
   -d '{"message": "What are my top selling products?"}'
+```
+
+---
+
+## Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `TABLEAU_SERVER_URL` | Yes | Tableau Server/Cloud URL |
+| `TABLEAU_SITE_ID` | Yes | Site ID (empty for default) |
+| `TABLEAU_TOKEN_NAME` | Yes | PAT name |
+| `TABLEAU_TOKEN_VALUE` | Yes | PAT value |
+| `GCP_PROJECT_ID` | Yes | Google Cloud project |
+| `GCP_LOCATION` | No | Region (default: `us-central1`) |
+| `VERTEX_AI_MODEL` | No | Model (default: `gemini-1.5-pro-002`) |
+| `MAX_REVISION_ITERATIONS` | No | Critic loops (default: `3`) |
+| `PYTHON_REPL_TIMEOUT` | No | REPL timeout secs (default: `30`) |
+
+---
+
+## SSE Events
+
+| Event | Description |
+|-------|-------------|
+| `agent_start` | Agent started |
+| `tool_result` | Tool completed |
+| `validation` | Critic validation |
+| `token` | Streamed content |
+| `complete` | Final response |
+| `error` | Error occurred |
+| `done` | Stream ended |
+
+---
+
+## Project Structure
+
+```
+├── backend/
+│   ├── src/
+│   │   ├── agents/       # Router, Researcher, Analyst, Critic
+│   │   ├── tools/        # Tableau & Python REPL tools
+│   │   ├── api.py        # FastAPI endpoints
+│   │   ├── graph.py      # LangGraph workflow
+│   │   └── constants.py  # Shared constants
+│   ├── prompts/          # Agent system prompts
+│   └── tests/            # Pytest tests
+├── frontend/
+│   ├── src/
+│   │   ├── hooks/        # SSE streaming hook
+│   │   ├── stores/       # Zustand state
+│   │   └── components/   # React UI
+│   └── package.json
+└── docker-compose.yml
 ```
 
 ---
@@ -96,8 +150,23 @@ docker-compose up --build
 ## Tests
 
 ```bash
+# Backend
 cd backend && pytest tests/ -v
+
+# Frontend
+cd frontend && npm run lint && npm run type-check
 ```
+
+---
+
+## Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| Tableau connection failed | Check PAT credentials and server URL |
+| Vertex AI auth error | Run `gcloud auth application-default login` |
+| CORS errors | Add frontend URL to `CORS_ORIGINS` |
+| Python REPL timeout | Increase `PYTHON_REPL_TIMEOUT` |
 
 ---
 

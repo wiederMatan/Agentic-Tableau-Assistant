@@ -1,15 +1,18 @@
 """LangGraph state graph definition for the multi-agent system."""
 
 import logging
+from functools import lru_cache
 from typing import AsyncIterator
 
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.graph import END, StateGraph
+from langgraph.graph.state import CompiledStateGraph
 
 from .agents.analyst import analyze
 from .agents.critic import should_continue, validate
 from .agents.researcher import research
 from .agents.router import get_route_decision, route_query
+from .constants import LOG_MESSAGE_TRUNCATE_LENGTH
 from .schemas import AgentState, create_initial_state
 
 logger = logging.getLogger(__name__)
@@ -68,7 +71,7 @@ def create_graph() -> StateGraph:
     return graph
 
 
-def compile_graph():
+def compile_graph() -> CompiledStateGraph:
     """Compile the graph for execution.
 
     Returns:
@@ -78,16 +81,16 @@ def compile_graph():
     return graph.compile()
 
 
-# Create a singleton compiled graph
-_compiled_graph = None
+@lru_cache(maxsize=1)
+def get_compiled_graph() -> CompiledStateGraph:
+    """Get or create the compiled graph singleton.
 
+    Uses lru_cache to ensure only one compiled graph instance exists.
 
-def get_compiled_graph():
-    """Get or create the compiled graph singleton."""
-    global _compiled_graph
-    if _compiled_graph is None:
-        _compiled_graph = compile_graph()
-    return _compiled_graph
+    Returns:
+        Compiled graph ready for execution.
+    """
+    return compile_graph()
 
 
 async def run_agent(
@@ -103,7 +106,7 @@ async def run_agent(
     Returns:
         Final agent state after graph execution.
     """
-    logger.info(f"Starting agent run for query: {user_message[:100]}...")
+    logger.info(f"Starting agent run for query: {user_message[:LOG_MESSAGE_TRUNCATE_LENGTH]}...")
 
     # Initialize state
     state = create_initial_state()
@@ -135,7 +138,7 @@ async def stream_agent(
     Yields:
         Event dictionaries with type and data.
     """
-    logger.info(f"Starting streaming agent run for query: {user_message[:100]}...")
+    logger.info(f"Starting streaming agent run for query: {user_message[:LOG_MESSAGE_TRUNCATE_LENGTH]}...")
 
     # Initialize state
     state = create_initial_state()
@@ -144,10 +147,19 @@ async def stream_agent(
     # Get the compiled graph
     graph = get_compiled_graph()
 
+    # Track the final state as we stream
+    final_state: AgentState | None = None
+
     # Stream execution
     async for event in graph.astream(state, stream_mode="updates"):
         for node_name, node_output in event.items():
             logger.debug(f"Stream event from node: {node_name}")
+
+            # Capture the latest state updates
+            if final_state is None:
+                final_state = dict(state)
+            # Merge node output into final state
+            final_state.update(node_output)
 
             yield {
                 "event": "agent_start",
@@ -206,16 +218,15 @@ async def stream_agent(
                     },
                 }
 
-    # Get final state
-    final_state = await graph.ainvoke(state)
-    analysis_result = final_state.get("analysis_result", "")
+    # Use the accumulated final state instead of re-invoking
+    analysis_result = final_state.get("analysis_result", "") if final_state else ""
 
     yield {
         "event": "complete",
         "data": {
             "content": analysis_result,
-            "query_type": final_state.get("query_type"),
-            "iterations": final_state.get("iteration_count", 1),
+            "query_type": final_state.get("query_type") if final_state else None,
+            "iterations": final_state.get("iteration_count", 1) if final_state else 1,
         },
     }
 

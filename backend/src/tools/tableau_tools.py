@@ -111,11 +111,12 @@ def search_tableau_assets(
             "query": query,
             "results": results,
         }
-    except Exception as e:
-        logger.error(f"Unexpected error during search: {e}")
+    except (AttributeError, TypeError, ValueError) as e:
+        # Handle attribute/type errors from TSC object processing
+        logger.error(f"Error processing Tableau search results: {e}")
         return {
             "success": False,
-            "error": f"Search failed: {str(e)}",
+            "error": f"Search result processing failed: {str(e)}",
             "query": query,
             "results": results,
         }
@@ -172,11 +173,12 @@ def get_view_data_as_csv(
             "view_luid": view_luid,
             "csv_data": "",
         }
-    except Exception as e:
-        logger.error(f"Unexpected error fetching view data: {e}")
+    except (AttributeError, TypeError, ValueError) as e:
+        # Handle attribute/type errors from CSV processing
+        logger.error(f"Error processing view data: {e}")
         return {
             "success": False,
-            "error": f"Failed to get view data: {str(e)}",
+            "error": f"View data processing failed: {str(e)}",
             "view_luid": view_luid,
             "csv_data": "",
         }
@@ -242,10 +244,11 @@ def get_data_dictionary(workbook_luid: str) -> dict[str, Any]:
             "error": str(e),
             "workbook_luid": workbook_luid,
         }
-    except Exception as e:
-        logger.error(f"Unexpected error fetching data dictionary: {e}")
+    except (AttributeError, TypeError, ValueError) as e:
+        # Handle attribute/type errors from workbook metadata processing
+        logger.error(f"Error processing workbook metadata: {e}")
         return {
             "success": False,
-            "error": f"Failed to get data dictionary: {str(e)}",
+            "error": f"Workbook metadata processing failed: {str(e)}",
             "workbook_luid": workbook_luid,
         }

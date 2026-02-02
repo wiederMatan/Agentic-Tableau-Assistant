@@ -10,6 +10,7 @@ from langchain_google_vertexai import ChatVertexAI
 
 from ..config import get_settings
 from ..schemas import AgentState
+from ..utils import extract_json_from_markdown
 
 logger = logging.getLogger(__name__)
 
@@ -54,20 +55,10 @@ def parse_router_response(
         Tuple of (query_type, full_response_dict).
     """
     try:
-        # Try to extract JSON from the response
-        response = response.strip()
+        # Extract JSON from potential markdown code blocks
+        json_str = extract_json_from_markdown(response)
 
-        # Handle markdown code blocks
-        if "```json" in response:
-            start = response.find("```json") + 7
-            end = response.find("```", start)
-            response = response[start:end].strip()
-        elif "```" in response:
-            start = response.find("```") + 3
-            end = response.find("```", start)
-            response = response[start:end].strip()
-
-        parsed = json.loads(response)
+        parsed = json.loads(json_str)
         query_type = parsed.get("query_type", "hybrid")
 
         # Validate query_type

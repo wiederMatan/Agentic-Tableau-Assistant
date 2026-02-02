@@ -1,26 +1,136 @@
+/**
+ * Custom hook for Server-Sent Events (SSE) streaming with the chat API.
+ *
+ * Handles connection lifecycle, event parsing, and state updates
+ * for real-time agent workflow streaming.
+ *
+ * @module useSSE
+ */
+
 import { useCallback, useRef, useState } from 'react';
 import type {
   AgentName,
+  AgentStartEvent,
   CompleteEvent,
   ErrorEvent,
   SSEEventType,
   TokenEvent,
+  ToolResultEvent,
   ValidationEvent,
 } from '@/types';
 import { parseSSEData } from '@/lib/utils';
 import { useChatStore } from '@/stores/chatStore';
 
+/**
+ * Type guard to check if event data is an AgentStartEvent.
+ */
+function isAgentStartEvent(data: Record<string, unknown>): data is AgentStartEvent {
+  return (
+    typeof data.agent === 'string' &&
+    data.status === 'running'
+  );
+}
+
+/**
+ * Type guard to check if event data is a ToolResultEvent.
+ */
+function isToolResultEvent(data: Record<string, unknown>): data is ToolResultEvent {
+  return typeof data.agent === 'string';
+}
+
+/**
+ * Type guard to check if event data is a ValidationEvent.
+ */
+function isValidationEvent(data: Record<string, unknown>): data is ValidationEvent {
+  return (
+    typeof data.status === 'string' &&
+    typeof data.iteration === 'number' &&
+    typeof data.revision_needed === 'boolean'
+  );
+}
+
+/**
+ * Type guard to check if event data is a TokenEvent.
+ */
+function isTokenEvent(data: Record<string, unknown>): data is TokenEvent {
+  return typeof data.content === 'string';
+}
+
+/**
+ * Type guard to check if event data is a CompleteEvent.
+ */
+function isCompleteEvent(data: Record<string, unknown>): data is CompleteEvent {
+  return (
+    typeof data.content === 'string' &&
+    typeof data.query_type === 'string' &&
+    typeof data.iterations === 'number'
+  );
+}
+
+/**
+ * Type guard to check if event data is an ErrorEvent.
+ */
+function isErrorEvent(data: Record<string, unknown>): data is ErrorEvent {
+  return (
+    typeof data.error === 'string' &&
+    typeof data.type === 'string'
+  );
+}
+
+/**
+ * Options for configuring the useSSE hook behavior.
+ */
 interface UseSSEOptions {
+  /**
+   * Callback invoked when the streaming completes successfully.
+   * @param event - The complete event containing the final response.
+   */
   onComplete?: (event: CompleteEvent) => void;
+
+  /**
+   * Callback invoked when an error occurs during streaming.
+   * @param error - The error message string.
+   */
   onError?: (error: string) => void;
 }
 
+/**
+ * Return type of the useSSE hook.
+ */
 interface UseSSEReturn {
+  /**
+   * Send a message to the chat API and stream the response.
+   * @param message - The user's message to send.
+   */
   sendMessage: (message: string) => Promise<void>;
+
+  /**
+   * Cancel the current streaming connection.
+   */
   cancel: () => void;
+
+  /**
+   * Whether there is an active SSE connection.
+   */
   isConnected: boolean;
 }
 
+/**
+ * Hook for managing SSE streaming connections to the chat API.
+ *
+ * @param options - Configuration options for callbacks.
+ * @returns Object with sendMessage, cancel, and isConnected.
+ *
+ * @example
+ * ```tsx
+ * const { sendMessage, cancel, isConnected } = useSSE({
+ *   onComplete: (event) => console.log('Done:', event.content),
+ *   onError: (error) => console.error('Error:', error),
+ * });
+ *
+ * await sendMessage('What are my top products?');
+ * ```
+ */
 export function useSSE(options: UseSSEOptions = {}): UseSSEReturn {
   const { onComplete, onError } = options;
   const [isConnected, setIsConnected] = useState(false);
@@ -111,52 +221,60 @@ export function useSSE(options: UseSSEOptions = {}): UseSSEReturn {
               const eventData = parseSSEData<Record<string, unknown>>(parsed.data);
               if (!eventData) continue;
 
-              // Handle different event types
+              // Handle different event types with type guards
               switch (parsed.event) {
                 case 'agent_start': {
-                  const agent = eventData.agent as AgentName;
-                  setCurrentAgent(agent);
-                  updateAgentStatus(agent, 'running');
+                  if (isAgentStartEvent(eventData)) {
+                    const agent = eventData.agent as AgentName;
+                    setCurrentAgent(agent);
+                    updateAgentStatus(agent, 'running');
+                  }
                   break;
                 }
 
                 case 'tool_result': {
-                  const agent = eventData.agent as AgentName;
-                  updateAgentStatus(agent, 'completed');
+                  if (isToolResultEvent(eventData)) {
+                    const agent = eventData.agent as AgentName;
+                    updateAgentStatus(agent, 'completed');
+                  }
                   break;
                 }
 
                 case 'validation': {
-                  const validation = eventData as unknown as ValidationEvent;
-                  updateAgentStatus(
-                    'critic',
-                    validation.revision_needed ? 'running' : 'completed',
-                    `Iteration ${validation.iteration}`
-                  );
+                  if (isValidationEvent(eventData)) {
+                    updateAgentStatus(
+                      'critic',
+                      eventData.revision_needed ? 'running' : 'completed',
+                      `Iteration ${eventData.iteration}`
+                    );
+                  }
                   break;
                 }
 
                 case 'token': {
-                  const token = eventData as unknown as TokenEvent;
-                  streamedContent += token.content;
-                  updateStreamingContent(streamedContent);
+                  if (isTokenEvent(eventData)) {
+                    streamedContent += eventData.content;
+                    updateStreamingContent(streamedContent);
+                  }
                   break;
                 }
 
                 case 'complete': {
-                  const complete = eventData as unknown as CompleteEvent;
-                  addAssistantMessage(complete.content, {
-                    queryType: complete.query_type,
-                    iterations: complete.iterations,
-                  });
-                  onComplete?.(complete);
+                  if (isCompleteEvent(eventData)) {
+                    addAssistantMessage(eventData.content, {
+                      queryType: eventData.query_type,
+                      iterations: eventData.iterations,
+                    });
+                    onComplete?.(eventData);
+                  }
                   break;
                 }
 
                 case 'error': {
-                  const error = eventData as unknown as ErrorEvent;
-                  setError(error.error);
-                  onError?.(error.error);
+                  if (isErrorEvent(eventData)) {
+                    setError(eventData.error);
+                    onError?.(eventData.error);
+                  }
                   break;
                 }
 

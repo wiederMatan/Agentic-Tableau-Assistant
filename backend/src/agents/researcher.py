@@ -7,6 +7,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 from langchain_google_vertexai import ChatVertexAI
 
 from ..config import get_settings
+from ..constants import TOOL_MAX_ITERATIONS
 from ..schemas import AgentState
 from ..tools import get_data_dictionary, get_view_data_as_csv, search_tableau_assets
 
@@ -78,10 +79,9 @@ async def research(state: AgentState) -> AgentState:
     # Run the agent loop (simplified - in production use langgraph's prebuilt agent)
     raw_data = {}
     data_dictionary = {}
-    max_iterations = 5
     iteration = 0
 
-    while iteration < max_iterations:
+    while iteration < TOOL_MAX_ITERATIONS:
         iteration += 1
         logger.debug(f"Researcher: Iteration {iteration}")
 

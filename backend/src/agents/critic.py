@@ -7,9 +7,12 @@ from typing import Literal
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_google_vertexai import ChatVertexAI
+from pydantic import ValidationError
 
 from ..config import get_settings
+from ..constants import CSV_PREVIEW_CHARS
 from ..schemas import AgentState, ValidationResult
+from ..utils import extract_json_from_markdown
 
 logger = logging.getLogger(__name__)
 
@@ -46,30 +49,30 @@ def parse_validation_response(response: str) -> ValidationResult:
         ValidationResult object.
     """
     try:
-        response = response.strip()
+        # Extract JSON from potential markdown code blocks
+        json_str = extract_json_from_markdown(response)
 
-        # Handle markdown code blocks
-        if "```json" in response:
-            start = response.find("```json") + 7
-            end = response.find("```", start)
-            response = response[start:end].strip()
-        elif "```" in response:
-            start = response.find("```") + 3
-            end = response.find("```", start)
-            response = response[start:end].strip()
-
-        parsed = json.loads(response)
+        parsed = json.loads(json_str)
         return ValidationResult(**parsed)
 
-    except (json.JSONDecodeError, Exception) as e:
-        logger.warning(f"Failed to parse critic response: {e}")
+    except json.JSONDecodeError as e:
+        logger.warning(f"Failed to parse critic JSON response: {e}")
         # Default to approved if parsing fails (don't block on errors)
         return ValidationResult(
             status="approved",
             confidence_score=0.5,
             issues=["Failed to parse validation response"],
             suggestions=[],
-            reasoning="Defaulting to approved due to parsing error",
+            reasoning="Defaulting to approved due to JSON parsing error",
+        )
+    except ValidationError as e:
+        logger.warning(f"Failed to validate critic response schema: {e}")
+        return ValidationResult(
+            status="approved",
+            confidence_score=0.5,
+            issues=["Failed to validate response schema"],
+            suggestions=[],
+            reasoning="Defaulting to approved due to schema validation error",
         )
 
 
@@ -121,7 +124,7 @@ async def validate(state: AgentState) -> AgentState:
     if state.get("raw_data") and state["raw_data"].get("csv_data"):
         csv_data = state["raw_data"]["csv_data"]
         if csv_data.get("success"):
-            raw_data_summary = f"\nSource data ({csv_data.get('row_count', 0)} rows):\n{csv_data.get('csv_data', '')[:2000]}"
+            raw_data_summary = f"\nSource data ({csv_data.get('row_count', 0)} rows):\n{csv_data.get('csv_data', '')[:CSV_PREVIEW_CHARS]}"
 
     validation_prompt = f"""## User's Original Question
 {user_message}

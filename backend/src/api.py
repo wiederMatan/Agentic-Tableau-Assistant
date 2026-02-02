@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from sse_starlette.sse import EventSourceResponse
 
 from .config import get_settings
+from .constants import LOG_MESSAGE_TRUNCATE_LENGTH
 from .graph import run_agent, stream_agent
 from .schemas import ChatRequest, SSEEvent
 
@@ -98,7 +99,8 @@ async def event_generator(
                 last_heartbeat = now
 
     except Exception as e:
-        logger.error(f"Error in event generator: {e}")
+        # Broad exception handler at API boundary - convert any streaming error to SSE error event
+        logger.error(f"Error in event generator: {e}", exc_info=True)
         yield {
             "event": "error",
             "data": json.dumps({
@@ -122,7 +124,7 @@ async def chat(request: ChatRequest) -> EventSourceResponse:
     Returns:
         EventSourceResponse streaming agent events.
     """
-    logger.info(f"Received chat request: {request.message[:100]}...")
+    logger.info(f"Received chat request: {request.message[:LOG_MESSAGE_TRUNCATE_LENGTH]}...")
 
     return EventSourceResponse(
         event_generator(request.message, request.conversation_id),
@@ -142,7 +144,7 @@ async def chat_sync(request: ChatRequest) -> dict:
     Returns:
         Final agent response.
     """
-    logger.info(f"Received sync chat request: {request.message[:100]}...")
+    logger.info(f"Received sync chat request: {request.message[:LOG_MESSAGE_TRUNCATE_LENGTH]}...")
 
     try:
         final_state = await run_agent(request.message, request.conversation_id)
@@ -155,7 +157,8 @@ async def chat_sync(request: ChatRequest) -> dict:
             "validation_status": final_state.get("validation_status"),
         }
     except Exception as e:
-        logger.error(f"Error in sync chat: {e}")
+        # Broad exception handler at API boundary - convert any agent error to HTTP 500
+        logger.error(f"Error in sync chat: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
